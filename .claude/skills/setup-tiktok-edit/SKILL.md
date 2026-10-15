@@ -64,7 +64,9 @@ Keeps one subject (e.g. the mouse, the PC case, a figure on the desk) framed whi
 
 Afterwards check `tracking` in the script output: `track_lost_fraction` above ~0.2 means the tracker lost the subject for part of the shot (it holds the last position), so look at that shot in the preview, and try a better box or a different start point. Tracking adds about 30 s per tracked clip.
 
-iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok. 4K clips take about a minute to render.
+iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok.
+
+Output matches the clips by default (`--res auto --fps auto`): 4K clips give a 2160×3840 video, 60 fps clips give 60 fps. Force a format with `--res 4k|1080` and `--fps 60|30`. A 16 s edit from 4K60 clips takes ~2–3 min to render at 4K60, ~7 min with stabilization and tracking on (about 1 and 2 min at 1080p30). Run long renders in the background.
 
 What it does: finds the beats, picks the loudest bar-aligned section of the song (or starts at `--start`), plans shots (hook 4 beats → 2-beat shots, 1-beat shots on the hardest hits → 4-beat closing shot on the hook clip), cuts each clip on the frame grid so nothing drifts, center-crops to 9:16, adds a slow push-in to every shot (`--zoom 0` turns it off if the footage already moves a lot), and grades.
 
