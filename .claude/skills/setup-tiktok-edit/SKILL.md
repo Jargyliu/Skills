@@ -19,7 +19,7 @@ If something essential is missing, ask once, briefly. Don't ask about optional s
 
 ## 2. Check tools
 
-`ffmpeg` and `ffprobe` must exist. Run `python3 -c "import librosa"`; if it fails, `pip install librosa`. (librosa 1.0 can't read MP4/M4A directly; the script converts through ffmpeg, so that's handled.)
+`ffmpeg` and `ffprobe` must exist. Run `python3 -c "import librosa"`; if it fails, `pip install librosa`. Only if you'll use subject tracking: `python3 -c "import cv2; cv2.TrackerCSRT_create"`; if it fails, `pip install opencv-contrib-python-headless`. (librosa 1.0 can't read MP4/M4A directly; the script converts through ffmpeg, so that's handled.)
 
 ## 3. Look at the clips before cutting
 
@@ -42,8 +42,27 @@ Then decide:
 python3 <skill-dir>/scripts/make_edit.py \
   --song SONG --clips HOOK.mp4 a.mp4 b.mp4@2.5 c.mp4 \
   --out OUTDIR/edit.mp4 [--start 42.5] [--seconds 16] [--grade clean] [--pace fast] \
-  [--hook-text "Rate my setup"] [--zoom 0.05]
+  [--hook-text "Rate my setup"] [--zoom 0.05] \
+  [--stabilize off|light|strong] [--track a.mp4=x,y,w,h [--track-zoom 1.4]]
 ```
+
+### Stabilization (`--stabilize`)
+
+Off by default. Turn it on when the user asks, or when the frame grids show handheld shake or jitter. `light` removes jitter but keeps the natural camera move; `strong` makes it glide like a gimbal. It crops in slightly to hide the moving edges, and it adds roughly 15–20 s per clip.
+
+### Subject tracking (`--track`)
+
+Keeps one subject (e.g. the mouse, the PC case, a figure on the desk) framed while the camera moves, by panning a tighter virtual crop that follows it. Use it when the user names something to follow, or when a clip's camera move lets the subject drift toward the edge.
+
+1. Pick the frame the shot starts on (the clip's `@` start, or 0.3 s) and render it with a coordinate grid:
+   ```bash
+   python3 <skill-dir>/scripts/pick_box.py CLIP --at START --out box.jpg
+   ```
+2. View it and read off a box around the subject as fractions of the frame: `x,y,w,h` (left, top, width, height; the grid lines are every 0.1). Make it snug around the subject but complete.
+3. Check it: re-run with `--box x,y,w,h` and look for the green rectangle on the subject.
+4. Pass `--track CLIPNAME=x,y,w,h` (repeat for more clips). `--track-zoom` sets how tight the follow framing is: 1.2 loose, 1.4 default, 2.0 tight.
+
+Afterwards check `tracking` in the script output: `track_lost_fraction` above ~0.2 means the tracker lost the subject for part of the shot (it holds the last position), so look at that shot in the preview, and try a better box or a different start point. Tracking adds about 30 s per tracked clip.
 
 iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok. 4K clips take about a minute to render.
 
@@ -70,6 +89,7 @@ Send `edit.mp4` (and mention `edit_nosound.mp4`). Tell the user briefly:
 Then take feedback. Common requests map to flags:
 - pace → `--pace`: `fast` (default, the user's preference: 2-beat shots with 1-beat shots on hard hits), `hyper` (every beat), `medium` (steady 2 beats), `chill` (4 beats, like the slower aesthetic references)
 - different part of the song → `--start`; longer/shorter → `--seconds`
-- different look → `--grade`; too much or too little movement → `--zoom`
+- different look → `--grade`; too much or too little push-in → `--zoom`
+- shaky footage → `--stabilize light` (or `strong`); "keep the X in frame / follow the X" → `--track`
 
 If the user gives feedback that should apply to every future video (not just this one), offer to update this skill so it sticks.
