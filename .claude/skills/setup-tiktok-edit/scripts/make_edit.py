@@ -50,6 +50,18 @@ def run(cmd):
     return r.stdout
 
 
+def is_hdr(path):
+    """iPhones record HLG HDR by default; it looks washed out unless tone-mapped to SDR."""
+    t = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=color_transfer", "-of", "csv=p=0", path]).strip()
+    return t in ("arib-std-b67", "smpte2084")
+
+
+# HDR -> SDR (bt709) tone mapping, applied after downscaling so 4K clips stay fast.
+TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+           "tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+
+
 def duration(path):
     return float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                       "-of", "csv=p=0", path]).strip())
@@ -104,12 +116,16 @@ def plan_shots(hit, i0, n_beats, shot_beats=2, quick_pct=85, hook_beats=4, end_b
     return shots
 
 
-def render_shot(clip, src_start, n_frames, out, grade, zoom, text=None):
+def render_shot(clip, src_start, n_frames, out, grade, zoom, text=None, hdr=False):
     secs = n_frames / FPS
-    vf = [f"fps={FPS}",
+    vf = [f"fps={FPS}"]
+    if hdr:
+        vf += [f"scale={int(W*1.5)}:{int(H*1.5)}:force_original_aspect_ratio=increase", TONEMAP]
+    vf += [
           # Fill 9:16, center crop. Upscale 1.5x first so the zoom is smooth.
           f"scale={int(W*1.5)}:{int(H*1.5)}:force_original_aspect_ratio=increase",
-          f"crop={int(W*1.5)}:{int(H*1.5)}"]
+          f"crop={int(W*1.5)}:{int(H*1.5)}",
+          "setsar=1"]
     if zoom:
         vf.append(f"zoompan=z='1+{zoom}*on/{n_frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
                   f":d=1:s={W}x{H}:fps={FPS}")
@@ -165,6 +181,7 @@ def main():
         cursor[path] = float(at) if at else a.skip
     first_start = dict(cursor)
     durs = {c: duration(c) for c in clips}
+    hdr = {c: is_hdr(c) for c in clips}
     hook, rest = clips[0], clips[1:] or clips[:1]
     plan, parts = [], []
     for k, (bi, nb) in enumerate(shots):
@@ -183,7 +200,8 @@ def main():
             start = max(0.0, min(first_start[clip], durs[clip] - need))  # clip used up: reuse
         cursor[clip] = start + need
         out = os.path.join(tmp, f"shot{k:03d}.mp4")
-        render_shot(clip, start, nf, out, a.grade, a.zoom, a.hook_text if k == 0 else None)
+        render_shot(clip, start, nf, out, a.grade, a.zoom, a.hook_text if k == 0 else None,
+                    hdr[clip])
         parts.append(out)
         plan.append({"shot": k, "clip": os.path.basename(clip), "clip_start": round(start, 2),
                      "beats": nb, "seconds": round(nf / FPS, 3),

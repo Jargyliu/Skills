@@ -12,7 +12,7 @@ The user makes short vertical videos showing off gaming setups. They give you **
 You need clips and a song. Optional: where in the song to start (e.g. "the drop at 0:42"), target length (default ~16 s), hook text (default none), and a look (default `clean`).
 
 - **Uploaded files**: use them directly.
-- **Google Drive folder/link**: list the folder (`parentId = '<folder id>'`), download each file. Large downloads come back saved to a JSON file with a base64 `content` field; decode it with Python into a working folder.
+- **Google Drive folder/link**: list the folder (`parentId = '<folder id>'`; follow `nextPageToken`, results come in pages). The Drive connector only downloads files **under 10 MB**; those come back saved to a JSON file with a base64 `content` field, which you decode with Python. Phone clips are usually far bigger. For those, try `curl -L -o FILE "https://drive.usercontent.google.com/download?id=FILE_ID&export=download&confirm=t"`; if the result is HTML instead of video, the folder is private, so ask the user to set it to "Anyone with the link can view" (Share → General access) and try again. Don't change sharing yourself.
 - **TikTok/YouTube links for the song**: these are usually blocked; ask for the audio file (an MP3, or any video with the song in it works, since only its audio is used).
 
 If something essential is missing, ask once, briefly. Don't ask about optional settings; use defaults and mention them at the end.
@@ -44,6 +44,8 @@ python3 <skill-dir>/scripts/make_edit.py \
   --out OUTDIR/edit.mp4 [--start 42.5] [--seconds 16] [--grade clean] [--pace fast] \
   [--hook-text "Rate my setup"] [--zoom 0.05]
 ```
+
+iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok. 4K clips take about a minute to render.
 
 What it does: finds the beats, picks the loudest bar-aligned section of the song (or starts at `--start`), plans shots (hook 4 beats → 2-beat shots, 1-beat shots on the hardest hits → 4-beat closing shot on the hook clip), cuts each clip on the frame grid so nothing drifts, center-crops to 1080×1920, adds a slow push-in to every shot (`--zoom 0` turns it off if the footage already moves a lot), and grades.
 
