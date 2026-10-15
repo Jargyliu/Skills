@@ -62,8 +62,9 @@ View `edit_preview.jpg`. Look for: the same framing twice in a row, a shot that'
 ## 6. Deliver
 
 Send `edit.mp4` (and mention `edit_nosound.mp4`). Tell the user briefly:
+- **always** where in the song the video starts and stops, as exact timestamps (`song_section` in the script output, e.g. "1:04.25 – 1:20.22"); the user always wants this
 - length, number of cuts, and the BPM
-- which part of the song it uses, and the TikTok tip: to use TikTok's licensed version of the sound, upload `edit_nosound.mp4`, pick the sound, and set it to start at the time in `tiktok_sound_tip` so the cuts line up
+- the TikTok tip: to use TikTok's licensed version of the sound, upload `edit_nosound.mp4`, pick the sound, and set it to start at the time in `tiktok_sound_tip` so the cuts line up
 - the defaults you chose (grade, hook text, length) so they can ask for changes
 
 Then take feedback. Common requests map to flags:

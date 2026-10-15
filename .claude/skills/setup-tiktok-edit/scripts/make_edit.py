@@ -223,7 +223,10 @@ def main():
     run(["ffmpeg", "-loglevel", "error", "-y", "-i", nosound, "-vf",
          f"fps=4,scale=180:320,tile=8x{math.ceil(total * 4 / 8)}", "-frames:v", "1",
          base + "_preview.jpg"])
+    mmss = lambda t: f"{int(t // 60)}:{t % 60:05.2f}"
     summary = {"tempo_bpm": round(tempo, 1), "song_start": round(float(t0), 3),
+               "song_end": round(float(t0) + total, 3),
+               "song_section": f"{mmss(t0)} - {mmss(t0 + total)}",
                "length_s": round(total, 2), "shots": plan,
                "tiktok_sound_tip": f"In TikTok, start the sound at {int(t0 // 60)}:{t0 % 60:04.1f}"}
     with open(base + "_plan.json", "w") as f:
