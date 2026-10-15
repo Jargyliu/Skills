@@ -66,7 +66,7 @@ Afterwards check `tracking` in the script output: `track_lost_fraction` above ~0
 
 iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok. 4K clips take about a minute to render.
 
-What it does: finds the beats, picks the loudest bar-aligned section of the song (or starts at `--start`), plans shots (hook 4 beats → 2-beat shots, 1-beat shots on the hardest hits → 4-beat closing shot on the hook clip), cuts each clip on the frame grid so nothing drifts, center-crops to 1080×1920, adds a slow push-in to every shot (`--zoom 0` turns it off if the footage already moves a lot), and grades.
+What it does: finds the beats, picks the loudest bar-aligned section of the song (or starts at `--start`), plans shots (hook 4 beats → 2-beat shots, 1-beat shots on the hardest hits → 4-beat closing shot on the hook clip), cuts each clip on the frame grid so nothing drifts, center-crops to 9:16, adds a slow push-in to every shot (`--zoom 0` turns it off if the footage already moves a lot), and grades.
 
 Outputs next to `--out`:
 - `edit.mp4`: final video with the song
@@ -76,7 +76,7 @@ Outputs next to `--out`:
 
 ## 5. Check your work
 
-View `edit_preview.jpg`. Look for: the same framing twice in a row, a shot that's mostly blur or a hand, a bad crop (landscape clips lose their sides), the hook text covering something important. Fix by reordering clips, changing `@` start points or dropping a clip, then re-run. It takes well under a minute.
+View `edit_preview.jpg`. Look for: the same framing twice in a row, a shot that's mostly blur or a hand, a bad crop (landscape clips lose their sides), the hook text covering something important. Fix by reordering clips, changing `@` start points or dropping a clip, then re-run. To iterate faster on a 4K project, test with `--res 1080 --fps 30`, then render the final version at full quality.
 
 ## 6. Deliver
 

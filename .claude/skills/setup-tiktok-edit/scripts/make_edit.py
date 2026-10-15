@@ -29,9 +29,31 @@ try:
 except ImportError:
     sys.exit("librosa is missing: run `pip install librosa` first")
 
+# Output format. By default it matches the clips (set_format): 4K clips -> 2160x3840,
+# 60 fps clips -> 60 fps. These defaults are only used by pick_box.py.
 FPS = 30
 W, H = 1080, 1920
-PW, PH = int(W * 1.5), int(H * 1.5)  # working size: 1.5x so zooms and crops stay sharp
+PW, PH = int(W * 1.5), int(H * 1.5)  # working size; extra room so push-ins stay sharp
+
+RESOLUTIONS = {"1080": (1080, 1920), "4k": (2160, 3840)}
+
+
+def set_format(res, fps):
+    global FPS, W, H, PW, PH
+    W, H = RESOLUTIONS[res]
+    FPS = fps
+    # At 1080p we work at 1.5x for sharp zooms; 4K sources have no extra pixels, so work at 4K.
+    PW, PH = (int(W * 1.5), int(H * 1.5)) if res == "1080" else (W, H)
+
+
+def probe_format(path):
+    """('4k' or '1080', fps) of a clip, using the short side so rotated phone video works."""
+    out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+               "stream=width,height,avg_frame_rate", "-of", "csv=p=0", path]).strip().split(",")
+    w, h, rate = int(out[0]), int(out[1]), out[2]
+    num, _, den = rate.partition("/")
+    fps = float(num) / float(den or 1) if float(den or 1) else 30
+    return ("4k" if min(w, h) >= 2160 else "1080"), (60 if fps >= 50 else 30)
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 # Color grades seen across the reference videos.
@@ -130,7 +152,7 @@ def track_and_crop(src, out, box, zoom):
     fw, fh = PW, PH
     c = np.array(centers, dtype=float) * [fw, fh]
     # Smooth over ~0.6 s so the virtual camera glides instead of jittering with the tracker.
-    k = 19
+    k = int(0.6 * FPS) | 1
     pad = np.pad(c, ((k // 2, k // 2), (0, 0)), mode="edge")
     kern = np.hanning(k) / np.hanning(k).sum()
     c = np.stack([np.convolve(pad[:, i], kern, mode="valid") for i in range(2)], axis=1)
@@ -167,7 +189,7 @@ def prep_clip(clip, t_from, t_len, hdr, stab, box, track_zoom, tmp, tag):
              f"vidstabdetect=shakiness=6:accuracy=15:result={trf}", "-f", "null", "-"])
         nxt = os.path.join(tmp, f"{tag}_b.mp4")
         # optzoom=1 zooms just enough to hide the moving borders stabilization creates.
-        encode(["-i", cur, "-vf", f"vidstabtransform=input={trf}:smoothing={stab}:optzoom=1"
+        encode(["-i", cur, "-vf", f"vidstabtransform=input={trf}:smoothing={stab * FPS // 30}:optzoom=1"
                 f":interpol=bicubic,unsharp=5:5:0.5,scale={PW}:{PH},setsar=1"], nxt)
         cur = nxt
     if box:
@@ -268,7 +290,16 @@ def main():
                          "at the clip's start point (see pick_box.py). Repeatable.")
     ap.add_argument("--track-zoom", type=float, default=1.4,
                     help="how tight the tracked framing is (1.2 loose .. 2.0 tight)")
+    ap.add_argument("--res", choices=["auto", *RESOLUTIONS], default="auto",
+                    help="output resolution; auto = match the clips (best clip wins)")
+    ap.add_argument("--fps", choices=["auto", "30", "60"], default="auto",
+                    help="output frame rate; auto = match the clips")
     a = ap.parse_args()
+
+    fmts = [probe_format(c.partition("@")[0]) for c in a.clips]
+    res = a.res if a.res != "auto" else ("4k" if any(r == "4k" for r, _ in fmts) else "1080")
+    fps = int(a.fps) if a.fps != "auto" else max(f for _, f in fmts)
+    set_format(res, fps)
 
     tmp = tempfile.mkdtemp(prefix="edit_")
     tempo, beats, hit, loud, song_len = analyze_song(a.song, tmp)
@@ -363,7 +394,8 @@ def main():
     summary = {"tempo_bpm": round(tempo, 1), "song_start": round(float(t0), 3),
                "song_end": round(float(t0) + total, 3),
                "song_section": f"{mmss(t0)} - {mmss(t0 + total)}",
-               "length_s": round(total, 2), "stabilize": a.stabilize, "shots": plan,
+               "length_s": round(total, 2), "format": f"{W}x{H} @ {FPS} fps",
+               "stabilize": a.stabilize, "shots": plan,
                "tiktok_sound_tip": f"In TikTok, start the sound at {int(t0 // 60)}:{t0 % 60:04.1f}"}
     if prep_info:
         summary["tracking"] = prep_info
