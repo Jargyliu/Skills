@@ -82,7 +82,8 @@ View `edit_preview.jpg`. Look for: the same framing twice in a row, a shot that'
 
 ## 6. Deliver
 
-Send `edit.mp4` (and mention `edit_nosound.mp4`). Tell the user briefly:
+Send `edit.mp4` (and mention `edit_nosound.mp4`). File sending is capped at 30 MB, and 4K60 edits are usually bigger. If so, send an HEVC copy at the same resolution and frame rate instead (plays on iPhones and uploads to TikTok fine; ~20 MB for 16 s):
+`ffmpeg -i edit.mp4 -c:v libx265 -preset medium -crf 20 -tag:v hvc1 -pix_fmt yuv420p -c:a copy -movflags +faststart edit_hevc.mp4` (raise `-crf` to 22–24 if it's still too big). Do the same for `edit_nosound.mp4` if the user wants it. Tell the user briefly:
 - **always** where in the song the video starts and stops, as exact timestamps (`song_section` in the script output, e.g. "1:04.25 – 1:20.22"); the user always wants this
 - length, number of cuts, and the BPM
 - the TikTok tip: to use TikTok's licensed version of the sound, upload `edit_nosound.mp4`, pick the sound, and set it to start at the time in `tiktok_sound_tip` so the cuts line up
