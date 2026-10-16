@@ -13,6 +13,7 @@ You need clips and a song. Optional: where in the song to start (e.g. "the drop 
 
 - **Uploaded files**: use them directly.
 - **Google Drive folder/link**: list the folder (`parentId = '<folder id>'`; follow `nextPageToken`, results come in pages). The Drive connector only downloads files **under 10 MB**; those come back saved to a JSON file with a base64 `content` field, which you decode with Python. Phone clips are usually far bigger. For those, try `curl -L -o FILE "https://drive.usercontent.google.com/download?id=FILE_ID&export=download&confirm=t"`; if the result is HTML instead of video, the folder is private, so ask the user to set it to "Anyone with the link can view" (Share → General access) and try again. Don't change sharing yourself.
+- **"Use the audio from this video"** (e.g. a reference TikTok): pass that video file as `--song`; only its audio is used. Saved TikToks are ~10–15 s of music followed by a silent end card, so use `--start 0` and a `--seconds` a bit longer than the music; the script stops at the last beat before the music ends. The beat detector often misses a soft intro; the script fills in those beats at the same tempo and snaps them onto the actual drum hits, so the edit can start right at 0:00.
 - **TikTok/YouTube links for the song**: these are usually blocked; ask for the audio file (an MP3, or any video with the song in it works, since only its audio is used).
 
 If something essential is missing, ask once, briefly. Don't ask about optional settings; use defaults and mention them at the end.
@@ -33,7 +34,8 @@ Then decide:
 - **Hook clip** (goes first, and returns as the last shot for the loop): the widest, most impressive view of the whole setup. Pass it first.
 - **Order of the rest**: details that flow — e.g. monitor → keyboard → mouse → PC case → lighting. Alternate close and medium shots so consecutive cuts don't look alike.
 - **Start points**: if a clip's best moment isn't at the beginning (shaky start, hand in frame, boring first seconds), append `@SECONDS` to its path, e.g. `case.mp4@3.2`.
-- **Grade**: `clean` (bright, white/wood setups), `moody` (dark/RGB setups), `faded` (soft, desaturated aesthetic), `bw`, or `none`. Pick what fits the footage; all shots get the same grade so the video feels like one piece.
+- **Unboxings / stories with an order**: when the user says which clips come first (e.g. cutting and opening the box), keep that order. Opening on the box can't double as the ending, so pass `--end CLIP@SECONDS` with the best wide shot of the finished setup; the video then ends on that instead of looping back to the opener.
+- **Grade**: `clean` (bright, white/wood setups; keeps warm footage warm), `warm` (clean plus a gentle shift toward golden tones), `moody` (dark/RGB setups), `faded` (soft, desaturated aesthetic), `bw`, or `none`. Pick what fits the footage; all shots get the same grade so the video feels like one piece.
 - Drop clips that are blurry, badly lit, or off-topic.
 
 ## 4. Run the edit
@@ -41,7 +43,7 @@ Then decide:
 ```bash
 python3 <skill-dir>/scripts/make_edit.py \
   --song SONG --clips HOOK.mp4 a.mp4 b.mp4@2.5 c.mp4 \
-  --out OUTDIR/edit.mp4 [--start 42.5] [--seconds 16] [--grade clean] [--pace fast] \
+  --out OUTDIR/edit.mp4 [--start 42.5] [--seconds 16] [--grade clean] [--pace fast] [--end WIDE.mp4@2] \
   [--hook-text "Rate my setup"] [--zoom 0.05] [--jump 0.25] [--jump-every N] \
   [--stabilize off|light|strong] [--track a.mp4=x,y,w,h [--track-zoom 1.4]]
 ```
@@ -71,7 +73,7 @@ Keeps one subject (e.g. the mouse, the PC case, a figure on the desk) framed whi
 
 Afterwards check `tracking` in the script output: `track_lost_fraction` above ~0.2 means the tracker lost the subject for part of the shot (it holds the last position), so look at that shot in the preview, and try a better box or a different start point. Tracking adds about 30 s per tracked clip.
 
-iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok.
+iPhone clips are usually 4K HDR (HLG); the script detects HDR and tone-maps it to normal SDR so it doesn't look washed out on TikTok. Note that a plain ffmpeg frame grab of HLG footage (like the step-3 grids) looks duller and cooler than the real colors; the tone-mapped edit shows warm light (sunsets, wood) as warm, which is correct.
 
 Output matches the clips by default (`--res auto --fps auto`): 4K clips give a 2160×3840 video, 60 fps clips give 60 fps. Force a format with `--res 4k|1080` and `--fps 60|30`. A 16 s edit from 4K60 clips takes ~2–3 min to render at 4K60, ~7 min with stabilization and tracking on (about 1 and 2 min at 1080p30). Run long renders in the background.
 

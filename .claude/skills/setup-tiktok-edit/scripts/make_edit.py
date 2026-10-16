@@ -64,6 +64,8 @@ GRADES = {
     "moody": "eq=contrast=1.12:saturation=0.85:brightness=-0.04:gamma=0.95",
     "faded": "eq=contrast=0.94:saturation=0.7:brightness=0.02,curves=all='0/0.05 1/0.97'",
     "bw": "hue=s=0,eq=contrast=1.1",
+    # clean, plus a gentle shift toward warm (golden-hour / wood-desk vibe)
+    "warm": "eq=contrast=1.06:saturation=1.1:brightness=0.01,colortemperature=temperature=5400:mix=0.6",
 }
 
 # Pace presets: (beats per normal shot, percentile of beat strength that gets a 1-beat shot).
@@ -200,11 +202,42 @@ def prep_clip(clip, t_from, t_len, hdr, stab, box, track_zoom, tmp, tag):
     return cur, info
 
 
+def fill_beat_grid(beats, y, sr):
+    """The beat tracker often locks on a few seconds late (soft intros) or stops early.
+    Extend its grid at the same spacing back to the start of the audio and forward to the
+    last audible moment, so short clips of a song (e.g. a TikTok's audio) can be used whole."""
+    if len(beats) < 4:
+        return beats
+    step = float(np.median(np.diff(beats)))
+    rms = librosa.feature.rms(y=y)[0]
+    rms_t = librosa.times_like(rms, sr=sr)
+    audible = rms_t[rms > 0.1 * np.median(rms[rms > 0])]
+    last_sound = float(audible[-1]) if len(audible) else len(y) / sr
+    head = []
+    b = beats[0] - step
+    while b >= -0.02:
+        head.append(max(0.0, b))
+        b -= step
+    tail = []
+    b = beats[-1] + step
+    while b <= last_sound - 0.1:
+        tail.append(b)
+        b += step
+    # Snap the guessed beats onto real drum hits when one is within 80 ms.
+    onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time")
+    snap = lambda t: (onsets[np.abs(onsets - t).argmin()]
+                      if len(onsets) and np.abs(onsets - t).min() < 0.08 else t)
+    head = [snap(t) for t in head[::-1]]
+    tail = [snap(t) for t in tail]
+    return np.concatenate([head, beats, tail])
+
+
 def analyze_song(song, tmp):
     wav = os.path.join(tmp, "song.wav")
     run(["ffmpeg", "-loglevel", "error", "-y", "-i", song, "-vn", "-ac", "1", "-ar", "22050", wav])
     y, sr = librosa.load(wav, sr=22050)
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="time")
+    beats = fill_beat_grid(np.asarray(beats), y, sr)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     times = librosa.times_like(onset_env, sr=sr)
     rms = librosa.feature.rms(y=y)[0]
@@ -304,6 +337,9 @@ def main():
     ap.add_argument("--jump-every", type=int, default=0,
                     help="beats between jump cuts inside a shot; 0 = auto (half a shot)")
     ap.add_argument("--hook-text", help="optional text over the first shot")
+    ap.add_argument("--end", metavar="CLIP[@SECONDS]",
+                    help="clip for the closing shot; default = the hook clip (loops). Use it when "
+                         "the opener can't double as the ending, e.g. an unboxing.")
     ap.add_argument("--skip", type=float, default=0.3, help="seconds to skip at the start of each clip")
     ap.add_argument("--stabilize", choices=STABILIZE, default="off",
                     help="smooth out camera shake on every clip")
@@ -329,7 +365,7 @@ def main():
     n_beats = max(12, int(round(a.seconds / beat_len / 4)) * 4)
     i0 = pick_window(beats, loud, n_beats, a.start)
     if i0 + n_beats >= len(beats):
-        n_beats = (len(beats) - 1 - i0) // 4 * 4
+        n_beats = len(beats) - 1 - i0  # song ends first: use every beat that's left
         if n_beats < 12:
             sys.exit("not enough song after --start for an edit; pick an earlier start")
     shots = plan_shots(hit, i0, n_beats, *PACES[a.pace])
@@ -357,8 +393,15 @@ def main():
             sys.exit(f"bad --track {t!r}: use CLIPNAME=x,y,w,h with a clip from --clips")
         tracks[match[0]] = box
 
-    durs = {c: duration(c) for c in clips}
     hook, rest = clips[0], clips[1:] or clips[:1]
+    end = hook  # by default the video ends on the opening shot, so it loops
+    if a.end:
+        path, _, at = a.end.partition("@")
+        end = os.path.abspath(path)
+        if end not in clips:
+            clips.append(end)
+        first_start[end] = cursor[end] = float(at) if at else a.skip
+    durs = {c: duration(c) for c in clips}
     # Decide which part of which clip every shot uses.
     plan, assign = [], []
     for k, (bi, nb) in enumerate(shots):
@@ -370,9 +413,10 @@ def main():
         jb = [j for j in range(every, nb, every)] if (a.jump > 0 and middle) else []
         bounds = [0] + [frame_at(bi + j) - frame_at(bi) for j in jb] + [nf]
         need = nf / FPS + len(jb) * a.jump  # footage used, including the skipped bits
-        clip = hook if k in (0, len(shots) - 1) else rest[(k - 1) % len(rest)]
+        last = k == len(shots) - 1
+        clip = hook if k == 0 else end if last else rest[(k - 1) % len(rest)]
         start = cursor[clip]
-        if k == len(shots) - 1:
+        if last:
             start = first_start[clip]  # same framing as the opener, so the loop is seamless
         if start + need > durs[clip]:
             start = first_start[clip]  # clip used up: reuse from its start point
