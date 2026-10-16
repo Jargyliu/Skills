@@ -3,7 +3,8 @@
 
 Shot plan (in beats): hook shot (4 beats) -> 2-beat shots, shortened to 1 beat
 where the song hits hardest -> closing shot (4 beats) that reuses the hook clip
-so the video loops. Every cut lands exactly on a detected beat.
+so the video loops. Every cut lands exactly on a detected beat. Inside middle shots,
+the footage also jump-cuts ahead (--jump, default 0.25 s) on beats, like the teeqzy references.
 
 Usage:
   make_edit.py --song song.mp3 --clips wide.mp4 b.mp4@2.5 c.mp4 --out edit.mp4
@@ -248,8 +249,22 @@ def plan_shots(hit, i0, n_beats, shot_beats=2, quick_pct=85, hook_beats=4, end_b
     return shots
 
 
-def render_shot(prep, src_start, n_frames, out, grade, zoom, text=None):
-    """Cut one shot from a prepped clip: push-in zoom, grade, optional text."""
+def render_shot(prep, pieces, out, grade, zoom, text=None):
+    """Cut one shot from a prepped clip: push-in zoom, grade, optional text.
+    `pieces` is [(src_start, n_frames), ...]; more than one piece = jump cuts inside the shot
+    (the footage skips ahead on a beat while the shot, and its push-in, carry on)."""
+    n_frames = sum(n for _, n in pieces)
+    s0 = pieces[0][0]
+    if len(pieces) == 1:
+        head = ""
+    else:
+        segs = []
+        for i, (ps, n) in enumerate(pieces):
+            f0 = int(round((ps - s0) * FPS))
+            segs.append(f"[s{i}]trim=start_frame={f0}:end_frame={f0 + n},setpts=PTS-STARTPTS[p{i}]")
+        head = (f"[0:v]split={len(pieces)}" + "".join(f"[s{i}]" for i in range(len(pieces))) + ";"
+                + ";".join(segs) + ";" + "".join(f"[p{i}]" for i in range(len(pieces)))
+                + f"concat=n={len(pieces)}:v=1:a=0,")
     # If the clip runs out early, hold its last frame so the shot still lasts exactly n_frames
     # (a short shot would shift every later cut off the beat).
     vf = ["tpad=stop_mode=clone:stop=-1"]
@@ -265,8 +280,11 @@ def render_shot(prep, src_start, n_frames, out, grade, zoom, text=None):
         vf.append(f"drawtext=fontfile={FONT}:text='{safe}':fontsize=72:fontcolor=white"
                   f":borderw=4:bordercolor=black@0.7:x=(w-tw)/2:y=h*0.18")
     vf.append("format=yuv420p")
-    run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{src_start:.3f}", "-i", prep,
-         "-t", f"{n_frames / FPS + 0.5:.3f}", "-vf", ",".join(vf), "-frames:v", str(n_frames),
+    span = (pieces[-1][0] - s0) + pieces[-1][1] / FPS
+    graph = (head + ",".join(vf)) if head else ("[0:v]" + ",".join(vf))
+    run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}", "-i", prep,
+         "-t", f"{span + 0.5:.3f}", "-filter_complex", graph + "[v]", "-map", "[v]",
+         "-frames:v", str(n_frames),
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out])
 
 
@@ -281,6 +299,10 @@ def main():
     ap.add_argument("--grade", choices=GRADES, default="clean")
     ap.add_argument("--pace", choices=PACES, default="fast")
     ap.add_argument("--zoom", type=float, default=0.05, help="push-in amount per shot, 0 = off")
+    ap.add_argument("--jump", type=float, default=0.25,
+                    help="jump cuts: seconds of footage skipped on beats inside a shot (0 = off)")
+    ap.add_argument("--jump-every", type=int, default=0,
+                    help="beats between jump cuts inside a shot; 0 = auto (half a shot)")
     ap.add_argument("--hook-text", help="optional text over the first shot")
     ap.add_argument("--skip", type=float, default=0.3, help="seconds to skip at the start of each clip")
     ap.add_argument("--stabilize", choices=STABILIZE, default="off",
@@ -341,7 +363,13 @@ def main():
     plan, assign = [], []
     for k, (bi, nb) in enumerate(shots):
         nf = frame_at(bi + nb) - frame_at(bi)
-        need = nf / FPS
+        # Jump cuts (teeqzy style): inside middle shots, on every `every`-th beat the footage
+        # skips ahead a.jump seconds instead of cutting to a new clip. Hook and ending stay clean.
+        every = a.jump_every or max(1, PACES[a.pace][0] // 2)
+        middle = 0 < k < len(shots) - 1
+        jb = [j for j in range(every, nb, every)] if (a.jump > 0 and middle) else []
+        bounds = [0] + [frame_at(bi + j) - frame_at(bi) for j in jb] + [nf]
+        need = nf / FPS + len(jb) * a.jump  # footage used, including the skipped bits
         clip = hook if k in (0, len(shots) - 1) else rest[(k - 1) % len(rest)]
         start = cursor[clip]
         if k == len(shots) - 1:
@@ -349,15 +377,17 @@ def main():
         if start + need > durs[clip]:
             start = first_start[clip]  # clip used up: reuse from its start point
         cursor[clip] = start + need
-        assign.append((clip, start, nf))
+        pieces = [(start + bounds[m] / FPS + m * a.jump, bounds[m + 1] - bounds[m])
+                  for m in range(len(bounds) - 1)]
+        assign.append((clip, pieces))
         plan.append({"shot": k, "clip": os.path.basename(clip), "clip_start": round(start, 2),
-                     "beats": nb, "seconds": round(nf / FPS, 3),
+                     "beats": nb, "seconds": round(nf / FPS, 3), "jump_cuts": len(jb),
                      "song_time": round(float(beats[bi]), 3)})
 
     # Prepare each clip once (tone-map, crop, stabilize, track) over just the span it's used.
     def prep(i_c):
         i, c = i_c
-        span = max(s + nf / FPS for cc, s, nf in assign if cc == c) - first_start[c] + 0.5
+        span = max(pc[-1][0] + pc[-1][1] / FPS for cc, pc in assign if cc == c) - first_start[c] + 0.5
         return c, prep_clip(c, first_start[c], span, is_hdr(c), STABILIZE[a.stabilize],
                             tracks.get(c), a.track_zoom, tmp, f"clip{i}")
     preps, prep_info = {}, {}
@@ -368,10 +398,10 @@ def main():
                 prep_info[os.path.basename(c)] = info
 
     parts = []
-    for k, (clip, start, nf) in enumerate(assign):
+    for k, (clip, pieces) in enumerate(assign):
         out = os.path.join(tmp, f"shot{k:03d}.mp4")
-        render_shot(preps[clip], start - first_start[clip], nf, out, a.grade, a.zoom,
-                    a.hook_text if k == 0 else None)
+        render_shot(preps[clip], [(ps - first_start[clip], n) for ps, n in pieces], out,
+                    a.grade, a.zoom, a.hook_text if k == 0 else None)
         parts.append(out)
 
     lst = os.path.join(tmp, "list.txt")

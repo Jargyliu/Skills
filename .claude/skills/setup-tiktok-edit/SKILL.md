@@ -42,9 +42,16 @@ Then decide:
 python3 <skill-dir>/scripts/make_edit.py \
   --song SONG --clips HOOK.mp4 a.mp4 b.mp4@2.5 c.mp4 \
   --out OUTDIR/edit.mp4 [--start 42.5] [--seconds 16] [--grade clean] [--pace fast] \
-  [--hook-text "Rate my setup"] [--zoom 0.05] \
+  [--hook-text "Rate my setup"] [--zoom 0.05] [--jump 0.25] [--jump-every N] \
   [--stabilize off|light|strong] [--track a.mp4=x,y,w,h [--track-zoom 1.4]]
 ```
+
+### Jump cuts (`--jump`, on by default)
+
+The user's teeqzy references don't only cut to new clips on the beat. Inside a shot, the footage also **skips ahead a fraction of a second exactly on a beat** while the shot carries on (same clip, same framing). It gives the rhythm extra hits without more clip changes. The script does this in every middle shot (never the hook or the looping ending):
+- `--jump 0.25`: seconds of footage skipped at each jump (default 0.25, the user's preference). It needs a moving camera or moving hands to read as a jump. On slow, smooth footage 0.25 s barely shows, so use 0.4–0.6 there. `--jump 0` turns it off.
+- `--jump-every N`: beats between jumps inside a shot. Default is half a shot: `chill` (4-beat shots) jumps on beat 2, `fast`/`medium` (2-beat shots) jumps on beat 1, `hyper` has no room for jumps. `--jump-every 1` jumps on every beat for a choppier feel.
+- `jump_cuts` in `edit_plan.json` shows how many jumps each shot got.
 
 ### Stabilization (`--stabilize`)
 
@@ -93,6 +100,7 @@ Then take feedback. Common requests map to flags:
 - pace → `--pace`: `fast` (default, the user's preference: 2-beat shots with 1-beat shots on hard hits), `hyper` (every beat), `medium` (steady 2 beats), `chill` (4 beats, like the slower aesthetic references)
 - different part of the song → `--start`; longer/shorter → `--seconds`
 - different look → `--grade`; too much or too little push-in → `--zoom`
+- jumps too subtle/too jarring → raise/lower `--jump`; more/fewer jumps → `--jump-every`; no jumps → `--jump 0`
 - shaky footage → `--stabilize light` (or `strong`); "keep the X in frame / follow the X" → `--track`
 
 If the user gives feedback that should apply to every future video (not just this one), offer to update this skill so it sticks.
