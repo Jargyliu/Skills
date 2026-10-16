@@ -55,7 +55,32 @@ def probe_format(path):
     num, _, den = rate.partition("/")
     fps = float(num) / float(den or 1) if float(den or 1) else 30
     return ("4k" if min(w, h) >= 2160 else "1080"), (60 if fps >= 50 else 30)
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# Bold font for --hook-text. On Windows the drive colon must be escaped inside ffmpeg filters.
+FONT = ("C\\:/Windows/Fonts/arialbd.ttf" if os.name == "nt"
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+
+# Video encoder: "cpu" (libx264) or "gpu" (NVIDIA NVENC + CUDA decoding). Set in main().
+ENCODER = "cpu"
+
+
+def codec(kind):
+    """ffmpeg codec args. 'inter' = temporary near-lossless files, 'final' = each finished shot."""
+    if ENCODER == "gpu":
+        if kind == "inter":
+            return ["-c:v", "h264_nvenc", "-preset", "p1", "-rc", "constqp", "-qp", "14"]
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0",
+                "-spatial_aq", "1"]
+    if kind == "inter":
+        return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "12"]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
+
+
+def gpu_works():
+    """True if this ffmpeg can encode with an NVIDIA GPU (tested with a tiny 4K encode)."""
+    r = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "color=black:s=2160x3840:d=0.2", "-c:v", "h264_nvenc", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    return r.returncode == 0
 
 # Color grades seen across the reference videos.
 GRADES = {
@@ -80,8 +105,8 @@ TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
            "tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
 
 
-def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True)
+def run(cmd, cwd=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
     if r.returncode != 0:
         sys.exit(f"command failed: {' '.join(cmd)}\n{r.stderr[-2000:]}")
     return r.stdout
@@ -108,10 +133,10 @@ def base_filters(hdr):
     return vf
 
 
-def encode(args, out):
+def encode(args, out, cwd=None):
     # Intermediate files: fast to write, near-lossless; the final encode happens per shot.
     run(["ffmpeg", "-loglevel", "error", "-y", *args, "-an", "-pix_fmt", "yuv420p",
-         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", out])
+         *codec("inter"), out], cwd=cwd)
 
 
 def read_frames(src, w, h):
@@ -165,7 +190,7 @@ def track_and_crop(src, out, box, zoom):
                           "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
                           "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
                           "-color_range", "tv",
-                          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", out],
+                          *codec("inter"), out],
                          stdin=subprocess.PIPE)
     # Pass 2: re-read at full size and crop around the smoothed path.
     for (cx, cy), f in zip(c, read_frames(src, PW, PH)):
@@ -183,17 +208,19 @@ def prep_clip(clip, t_from, t_len, hdr, stab, box, track_zoom, tmp, tag):
     """Make a 30 fps, SDR, 9:16 working copy of `clip` (t_from .. t_from+t_len),
     stabilized/tracked if asked. Only the part the edit uses is processed, to keep it fast."""
     cur = os.path.join(tmp, f"{tag}_a.mp4")
-    encode(["-ss", f"{t_from:.3f}", "-t", f"{t_len:.3f}", "-i", clip,
+    hw = ["-hwaccel", "cuda"] if ENCODER == "gpu" else []  # GPU decoding of 4K HEVC phone video
+    encode([*hw, "-ss", f"{t_from:.3f}", "-t", f"{t_len:.3f}", "-i", clip,
             "-vf", ",".join(base_filters(hdr))], cur)
     info = {}
     if stab:
-        trf = os.path.join(tmp, f"{tag}.trf")
+        # Relative .trf name + cwd=tmp: a full Windows path (C:\...) would break the filter syntax.
+        trf = f"{tag}.trf"
         run(["ffmpeg", "-loglevel", "error", "-y", "-i", cur, "-vf",
-             f"vidstabdetect=shakiness=6:accuracy=15:result={trf}", "-f", "null", "-"])
+             f"vidstabdetect=shakiness=6:accuracy=15:result={trf}", "-f", "null", "-"], cwd=tmp)
         nxt = os.path.join(tmp, f"{tag}_b.mp4")
         # optzoom=1 zooms just enough to hide the moving borders stabilization creates.
         encode(["-i", cur, "-vf", f"vidstabtransform=input={trf}:smoothing={stab * FPS // 30}:optzoom=1"
-                f":interpol=bicubic,unsharp=5:5:0.5,scale={PW}:{PH},setsar=1"], nxt)
+                f":interpol=bicubic,unsharp=5:5:0.5,scale={PW}:{PH},setsar=1"], nxt, cwd=tmp)
         cur = nxt
     if box:
         nxt = os.path.join(tmp, f"{tag}_c.mp4")
@@ -318,7 +345,7 @@ def render_shot(prep, pieces, out, grade, zoom, text=None):
     run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{s0:.3f}", "-i", prep,
          "-t", f"{span + 0.5:.3f}", "-filter_complex", graph + "[v]", "-map", "[v]",
          "-frames:v", str(n_frames),
-         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out])
+         "-an", "-pix_fmt", "yuv420p", *codec("final"), out])
 
 
 def main():
@@ -355,7 +382,11 @@ def main():
                     help="output resolution; auto = match the clips (best clip wins)")
     ap.add_argument("--fps", choices=["auto", "30", "60"], default="auto",
                     help="output frame rate; auto = match the clips")
+    ap.add_argument("--encoder", choices=["auto", "cpu", "gpu"], default="auto",
+                    help="gpu = NVIDIA NVENC (much faster for 4K); auto = gpu if it works, else cpu")
     a = ap.parse_args()
+    global ENCODER
+    ENCODER = "gpu" if a.encoder == "gpu" or (a.encoder == "auto" and gpu_works()) else "cpu"
 
     fmts = [probe_format(c.partition("@")[0]) for c in a.clips]
     res = a.res if a.res != "auto" else ("4k" if any(r == "4k" for r, _ in fmts) else "1080")
@@ -454,7 +485,7 @@ def main():
 
     lst = os.path.join(tmp, "list.txt")
     with open(lst, "w") as f:
-        f.writelines(f"file '{p}'\n" for p in parts)
+        f.writelines(f"file '{p.replace(os.sep, '/')}'\n" for p in parts)
     base = os.path.splitext(a.out)[0]
     nosound = base + "_nosound.mp4"
     run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst,
@@ -472,7 +503,7 @@ def main():
     summary = {"tempo_bpm": round(tempo, 1), "song_start": round(float(t0), 3),
                "song_end": round(float(t0) + total, 3),
                "song_section": f"{mmss(t0)} - {mmss(t0 + total)}",
-               "length_s": round(total, 2), "format": f"{W}x{H} @ {FPS} fps",
+               "length_s": round(total, 2), "format": f"{W}x{H} @ {FPS} fps", "encoder": ENCODER,
                "stabilize": a.stabilize, "shots": plan,
                "tiktok_sound_tip": f"In TikTok, start the sound at {int(t0 // 60)}:{t0 % 60:04.1f}"}
     if prep_info:

@@ -22,6 +22,15 @@ If something essential is missing, ask once, briefly. Don't ask about optional s
 
 `ffmpeg` and `ffprobe` must exist. Run `python3 -c "import librosa"`; if it fails, `pip install librosa`. Only if you'll use subject tracking: `python3 -c "import cv2; cv2.TrackerCSRT_create"`; if it fails, `pip install opencv-contrib-python-headless`. (librosa 1.0 can't read MP4/M4A directly; the script converts through ffmpeg, so that's handled.)
 
+### Running on the user's own PC (Windows 11, Ryzen 9800X3D, RTX 5070)
+
+Rendering is much faster there than in a cloud container. If this session runs on their PC:
+- Use `python` (or `py`) instead of `python3` on Windows.
+- ffmpeg must have zimg, vidstab and NVENC: the "full" build does (`winget install Gyan.FFmpeg`). Check with `ffmpeg -hide_banner -filters | findstr "zscale vidstab"` and `ffmpeg -hide_banner -encoders | findstr nvenc`.
+- `pip install librosa opencv-contrib-python-headless`.
+- The script picks the GPU automatically (`--encoder auto`): it test-encodes on NVENC, then uses CUDA to decode the 4K HEVC clips and NVENC to encode; if that fails it uses the CPU. The output's `encoder` field says which was used. Force it with `--encoder gpu|cpu`.
+- For the size-capped HEVC copy, use the GPU too: `-c:v hevc_nvenc -preset p5 -rc vbr -cq 24 -b:v 0 -tag:v hvc1` instead of libx265 (seconds instead of minutes). Files on their PC don't need to be sent at all; just tell them where the file is.
+
 ## 3. Look at the clips before cutting
 
 The script handles timing, but choosing *which footage goes where* is your job, and it's what makes the edit look intentional. For each clip, make a frame grid and view it:
