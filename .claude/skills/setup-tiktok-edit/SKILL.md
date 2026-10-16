@@ -54,6 +54,7 @@ The user's teeqzy references don't only cut to new clips on the beat. Inside a s
 - `--jump 0.25`: seconds of footage skipped at each jump (default 0.25, the user's preference). It needs a moving camera or moving hands to read as a jump. On slow, smooth footage 0.25 s barely shows, so use 0.4–0.6 there. `--jump 0` turns it off.
 - `--jump-every N`: beats between jumps inside a shot. Default is half a shot: `chill` (4-beat shots) jumps on beat 2, `fast`/`medium` (2-beat shots) jumps on beat 1, `hyper` has no room for jumps. `--jump-every 1` jumps on every beat for a choppier feel.
 - `jump_cuts` in `edit_plan.json` shows how many jumps each shot got.
+- `--hook-jump SECONDS`: jump cuts in the opening shot too (off by default). Use it when the opener is an action longer than the hook (e.g. cutting a box open: 3.6 s of action into a 2.5 s hook → start at the blade going in, `--hook-jump` ≈ (action − hook length) / jumps). Check the hook frames: the user wants the payoff of the action (the blade actually slicing through) on screen, not just the lead-up.
 
 ### Stabilization (`--stabilize`)
 

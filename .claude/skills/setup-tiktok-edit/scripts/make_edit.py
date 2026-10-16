@@ -334,6 +334,9 @@ def main():
     ap.add_argument("--zoom", type=float, default=0.05, help="push-in amount per shot, 0 = off")
     ap.add_argument("--jump", type=float, default=0.25,
                     help="jump cuts: seconds of footage skipped on beats inside a shot (0 = off)")
+    ap.add_argument("--hook-jump", type=float, default=0,
+                    help="jump cuts in the opening shot too (seconds per jump; 0 = clean opener). "
+                         "Use it to fit a long action, e.g. a box being cut open, into the hook.")
     ap.add_argument("--jump-every", type=int, default=0,
                     help="beats between jump cuts inside a shot; 0 = auto (half a shot)")
     ap.add_argument("--hook-text", help="optional text over the first shot")
@@ -410,9 +413,10 @@ def main():
         # skips ahead a.jump seconds instead of cutting to a new clip. Hook and ending stay clean.
         every = a.jump_every or max(1, PACES[a.pace][0] // 2)
         middle = 0 < k < len(shots) - 1
-        jb = [j for j in range(every, nb, every)] if (a.jump > 0 and middle) else []
+        jump = a.jump if middle else a.hook_jump if k == 0 else 0
+        jb = [j for j in range(every, nb, every)] if jump > 0 else []
         bounds = [0] + [frame_at(bi + j) - frame_at(bi) for j in jb] + [nf]
-        need = nf / FPS + len(jb) * a.jump  # footage used, including the skipped bits
+        need = nf / FPS + len(jb) * jump  # footage used, including the skipped bits
         last = k == len(shots) - 1
         clip = hook if k == 0 else end if last else rest[(k - 1) % len(rest)]
         start = cursor[clip]
@@ -421,7 +425,7 @@ def main():
         if start + need > durs[clip]:
             start = first_start[clip]  # clip used up: reuse from its start point
         cursor[clip] = start + need
-        pieces = [(start + bounds[m] / FPS + m * a.jump, bounds[m + 1] - bounds[m])
+        pieces = [(start + bounds[m] / FPS + m * jump, bounds[m + 1] - bounds[m])
                   for m in range(len(bounds) - 1)]
         assign.append((clip, pieces))
         plan.append({"shot": k, "clip": os.path.basename(clip), "clip_start": round(start, 2),
