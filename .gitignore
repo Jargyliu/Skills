@@ -1,1 +1,2 @@
 *.skill
+__pycache__/
