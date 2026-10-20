@@ -46,6 +46,8 @@ Then decide:
 - **Unboxings / stories with an order**: when the user says which clips come first (e.g. cutting and opening the box), keep that order. Opening on the box can't double as the ending, so pass `--end CLIP@SECONDS` with the best wide shot of the finished setup; the video then ends on that instead of looping back to the opener.
 - **Grade**: `clean` (bright, white/wood setups; keeps warm footage warm), `warm` (clean plus a gentle shift toward golden tones), `moody` (dark/RGB setups), `faded` (soft, desaturated aesthetic), `bw`, or `none`. Pick what fits the footage; all shots get the same grade so the video feels like one piece.
 - Drop clips that are blurry, badly lit, or off-topic.
+- **Use only as many clips as the edit needs.** Work out the shot count first (length ÷ shot length at the song's tempo; e.g. 22 s at 76 BPM chill = 7 shots) and pick that many of the best, most varied clips. Don't try to fit every clip in. When there are many clips (10+), choose from one mid-clip thumbnail per clip on a single sheet instead of full frame grids, and only grid the few you'll use if start points matter.
+- "Don't change the visuals" means `--grade none` (colors as filmed).
 
 ## 4. Run the edit
 
